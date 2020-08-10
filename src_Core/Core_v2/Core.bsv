@@ -9,8 +9,8 @@ package Core;
 //
 // mkCore instantiates:
 //     - mkCPU (the RISC-V CPU)
-//     - mkFabric_2x3
-//     - mkNear_Mem_IO_AXI4
+//     - mkFabric_1x3
+//     - mkNear_Mem_IO_AXI4   (memory-mapped MTIME, MTIMECMP, MSIP etc.)
 //     - mkPLIC_16_2_7
 //     - mkTV_Encode          (Tandem-Verification logic, optional: INCLUDE_TANDEM_VERIF)
 //     - mkDebug_Module       (RISC-V Debug Module, optional: INCLUDE_GDB_CONTROL)
@@ -24,7 +24,6 @@ import FIFOF         :: *;
 import GetPut        :: *;
 import ClientServer  :: *;
 import Connectable   :: *;
-import ConfigReg     :: *;
 
 // ----------------
 // BSV additional libs
@@ -38,36 +37,37 @@ import GetPut_Aux :: *;
 // Main fabric
 import AXI4_Types   :: *;
 import AXI4_Fabric  :: *;
-import Fabric_Defs  :: *;    // for Wd_Id, Wd_Addr, Wd_Data, Wd_User
+import Fabric_Defs  :: *;    // for Wd_{Id,Addr,Data,User}
 import SoC_Map      :: *;
 
 `ifdef INCLUDE_DMEM_SLAVE
 import AXI4_Lite_Types :: *;
 `endif
 
-`ifdef INCLUDE_GDB_CONTROL
-import Debug_Module     :: *;
-`endif
-
 import Core_IFC          :: *;
 import CPU_IFC           :: *;
 import CPU               :: *;
 
-import Fabric_2x3        :: *;
+import Fabric_1x3        :: *;    // CPU MMIO to Fabric, Near_Mem_IO and PLIC
 
 import Near_Mem_IFC      :: *;    // For Wd_{Id,Addr,Data,User}_Dma
 import Near_Mem_IO_AXI4  :: *;
 import PLIC              :: *;
 import PLIC_16_2_7       :: *;
 
+`ifdef INCLUDE_GDB_CONTROL
+import Debug_Module   :: *;
+import Dma_Server_Mux :: *;
+`endif
+
 `ifdef INCLUDE_TANDEM_VERIF
 import TV_Info   :: *;
 import TV_Encode :: *;
 `endif
 
-// TV_Taps needed when both GDB_CONTROL and TANDEM_VERIF are present
 `ifdef INCLUDE_GDB_CONTROL
 `ifdef INCLUDE_TANDEM_VERIF
+// TV_Taps needed when both GDB_CONTROL and TANDEM_VERIF are present
 import TV_Taps :: *;
 `endif
 `endif
@@ -87,8 +87,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    // The CPU
    CPU_IFC  cpu <- mkCPU;
 
-   // A 2x3 fabric for connecting {CPU, Debug_Module} to {Fabric, Near_Mem_IO, PLIC}
-   Fabric_2x3_IFC  fabric_2x3 <- mkFabric_2x3;
+   // A 1x3 fabric for connecting CPU to {Fabric, Near_Mem_IO, PLIC}
+   Fabric_1x3_IFC  fabric_1x3 <- mkFabric_1x3;
 
    // Near_Mem_IO
    Near_Mem_IO_AXI4_IFC  near_mem_io <- mkNear_Mem_IO_AXI4;
@@ -109,12 +109,10 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
 
 `ifdef INCLUDE_GDB_CONTROL
    // Debug Module
-   Debug_Module_IFC  debug_module <- mkDebug_Module;
+   Debug_Module_IFC    debug_module   <- mkDebug_Module;
+   // Mux external dma client and debug module memory client into dma server
+   Dma_Server_Mux_IFC  dma_server_mux <- mkDma_Server_Mux;
 `endif
-
-   // Verbosity: 0=quiet; 1=more detail
-   Reg #(Bit #(4))  cfg_verbosity <- mkConfigReg (0);
-
 
    // ================================================================
    // RESET
@@ -137,14 +135,13 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       cpu.hart0_server_reset.request.put (running);    // CPU
       near_mem_io.server_reset.request.put (?);        // Near_Mem_IO
       plic.server_reset.request.put (?);               // PLIC
-      fabric_2x3.reset;                                // Local 2x3 Fabric
+      fabric_1x3.reset;                                // Local 1x3 Fabric
 
 `ifdef INCLUDE_GDB_CONTROL
       // Remember the requestor, so we can respond to it
       f_reset_requestor.enq (reset_requestor_soc);
 `endif
-      if (cfg_verbosity > 0)
-         $display ("%0d: Core.rl_cpu_hart0_reset_from_soc_start", cur_cycle);
+      $display ("%0d: Core.rl_cpu_hart0_reset_from_soc_start", cur_cycle);
    endrule
 
 `ifdef INCLUDE_GDB_CONTROL
@@ -155,12 +152,11 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       cpu.hart0_server_reset.request.put (running);    // CPU
       near_mem_io.server_reset.request.put (?);        // Near_Mem_IO
       plic.server_reset.request.put (?);               // PLIC
-      fabric_2x3.reset;                                // Local 2x3 fabric
+      fabric_1x3.reset;                                // Local 1x3 fabric
 
       // Remember the requestor, so we can respond to it
       f_reset_requestor.enq (reset_requestor_dm);
-      if (cfg_verbosity > 0)
-         $display ("%0d: Core.rl_cpu_hart0_reset_from_dm_start", cur_cycle);
+      $display ("%0d: Core.rl_cpu_hart0_reset_from_dm_start", cur_cycle);
    endrule
 `endif
 
@@ -184,8 +180,7 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       if (requestor == reset_requestor_soc)
 	 f_reset_rsps.enq (running);
 
-      if (cfg_verbosity > 0)
-         $display ("%0d: Core.rl_cpu_hart0_reset_complete", cur_cycle);
+      $display ("%0d: Core.rl_cpu_hart0_reset_complete", cur_cycle);
    endrule
 
    // ================================================================
@@ -316,16 +311,26 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    // for ifdef INCLUDE_GDB_CONTROL
 
    // ================================================================
-   // Connect the local 2x3 fabric
+   // Mux in Debug Module's memory client with external dma client into dma_server
 
-   // Masters on the local 2x3 fabric
-   mkConnection (cpu.mem_master,  fabric_2x3.v_from_masters [cpu_dmem_master_num]);
-   mkConnection (dm_master_local, fabric_2x3.v_from_masters [debug_module_sba_master_num]);
+`ifdef INCLUDE_GDB_CONTROL
+   mkConnection (dma_server_mux.target_client, cpu.dma_server);
+   mkConnection (dm_master_local, dma_server_mux.initiator_B_server);
+   let dma_server_local = dma_server_mux.initiator_A_server;
+`else
+   let dma_server_local = cpu.dma_server;
+`endif
 
-   // Slaves on the local 2x3 fabric
-   // default slave is taken out directly to the Core interface
-   mkConnection (fabric_2x3.v_to_slaves [near_mem_io_slave_num], near_mem_io.axi4_slave);
-   mkConnection (fabric_2x3.v_to_slaves [plic_slave_num],        plic.axi4_slave);
+   // ================================================================
+   // Connect the local 1x3 fabric
+
+   // Initiators on the local 1x3 fabric
+   mkConnection (cpu.imem_master, fabric_1x3.v_from_masters [cpu_mmio_master_num]);
+
+   // Targets on the local 1x3 fabric
+   // default target is taken out directly to Core interface
+   mkConnection (fabric_1x3.v_to_slaves [near_mem_io_target_num], near_mem_io.axi4_slave);
+   mkConnection (fabric_1x3.v_to_slaves [plic_target_num],        plic.axi4_slave);
 
    // ================================================================
    // Connect interrupt lines from near_mem_io and PLIC to CPU
@@ -333,16 +338,14 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    rule rl_relay_sw_interrupts;    // from Near_Mem_IO (CLINT)
       Bool x <- near_mem_io.get_sw_interrupt_req.get;
       cpu.software_interrupt_req (x);
-      if (cfg_verbosity > 1)
-         $display ("%0d: Core.rl_relay_sw_interrupts: relaying: %d", cur_cycle, pack (x));
+      // $display ("%0d: Core.rl_relay_sw_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    rule rl_relay_timer_interrupts;    // from Near_Mem_IO (CLINT)
       Bool x <- near_mem_io.get_timer_interrupt_req.get;
       cpu.timer_interrupt_req (x);
 
-      if (cfg_verbosity > 1)
-         $display ("%0d: Core.rl_relay_timer_interrupts: relaying: %d", cur_cycle, pack (x));
+      // $display ("%0d: Core.rl_relay_timer_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    rule rl_relay_external_interrupts;    // from PLIC
@@ -359,14 +362,6 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    // INTERFACE
 
    // ----------------------------------------------------------------
-   // Debugging: set core's verbosity
-
-   method Action  set_verbosity (Bit #(4)  verbosity, Bit #(64)  logdelay);
-      cpu.set_verbosity (verbosity, logdelay);
-      cfg_verbosity <= verbosity;
-   endmethod
-
-   // ----------------------------------------------------------------
    // Soft reset
 
    interface Server  cpu_reset_server = toGPServer (f_reset_reqs, f_reset_rsps);
@@ -375,10 +370,10 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    // AXI4 Fabric interfaces
 
    // IMem to Fabric master interface
-   interface AXI4_Master_IFC  cpu_imem_master = cpu.imem_master;
+   interface AXI4_Master_IFC  cpu_imem_master = fabric_1x3.v_to_slaves [default_target_num];
 
    // DMem to Fabric master interface
-   interface AXI4_Master_IFC  core_mem_master = fabric_2x3.v_to_slaves [default_slave_num];
+   interface AXI4_Master_IFC  core_mem_master = cpu.mem_master;
 
    // ----------------------------------------------------------------
    // Optional AXI4-Lite D-cache slave interface
@@ -390,7 +385,7 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    // ----------------------------------------------------------------
    // Interface to 'coherent DMA' port of optional L2 cache
 
-   interface AXI4_Slave_IFC  dma_server = cpu.dma_server;
+   interface AXI4_Slave_IFC  dma_server = dma_server_local;
 
    // ----------------------------------------------------------------
    // External interrupt sources
@@ -417,7 +412,7 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
 `endif
 
    // ----------------------------------------------------------------
-   // Optional DM interfaces
+   // Optional Debug Module interfaces
 
 `ifdef INCLUDE_GDB_CONTROL
    // ----------------
@@ -437,7 +432,6 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
 
    // ----------------
    // Debugging: set core's verbosity
-
    method Action  set_verbosity (Bit #(4)  verbosity, Bit #(64)  logdelay);
       cpu.set_verbosity (verbosity, logdelay);
    endmethod
