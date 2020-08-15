@@ -430,8 +430,10 @@ module mkNear_Mem_IO_AXI4 (Near_Mem_IO_AXI4_IFC);
 
       rg_addr_base <= addr_base;
       rg_addr_lim  <= addr_lim;
-      $display ("%0d: Near_Mem_IO_AXI4.set_addr_map: addr_base 0x%0h addr_lim 0x%0h",
-		cur_cycle, addr_base, addr_lim);
+      if (cfg_verbosity > 0) begin
+         $display ("%0d: Near_Mem_IO_AXI4.set_addr_map: addr_base 0x%0h addr_lim 0x%0h",
+                   cur_cycle, addr_base, addr_lim);
+      end
    endmethod
 
    // Memory-mapped access

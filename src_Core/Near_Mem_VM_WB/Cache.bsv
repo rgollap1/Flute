@@ -835,15 +835,17 @@ module mkCache #(parameter Bit #(3) verbosity)
       if (rg_cset_in_cache == fromInteger (csets_per_cache - 1)) begin
 	 rg_fsm_state <= FSM_IDLE;
 
-	 $display ("%0d: INFO: %m.rl_initialize", cur_cycle);
-	 $display ("    Size %0d KB, Associativity %0d, Line size %0d bytes (= %0d XLEN words)",
-		   kb_per_cache, ways_per_cset, (word64s_per_cline * 8),
+         if (verbosity >= 1) begin
+            $display ("%0d: INFO: %m.rl_initialize", cur_cycle);
+            $display ("    Size %0d KB, Associativity %0d, Line size %0d bytes (= %0d XLEN words)",
+                      kb_per_cache, ways_per_cset, (word64s_per_cline * 8),
 `ifdef RV32
-		   (word64s_per_cline * 2)
+                      (word64s_per_cline * 2)
 `else
-		   (word64s_per_cline * 1)
+                      (word64s_per_cline * 1)
 `endif
 		   );
+         end
 	 if (verbosity >= 1)
 	    $display ("    All lines (%0d sets %0d ways) initialized to INVALID",
 		      cur_cycle, csets_per_cache, ways_per_cset);

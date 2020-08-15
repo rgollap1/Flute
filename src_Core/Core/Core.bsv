@@ -110,6 +110,10 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    Debug_Module_IFC  debug_module <- mkDebug_Module;
 `endif
 
+   // Verbosity: 0=quiet; 1=more detail
+   Reg #(Bit #(4))  cfg_verbosity <- mkConfigReg (0);
+
+
    // ================================================================
    // RESET
    // There are two sources of reset requests to the CPU: externally
@@ -137,7 +141,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       // Remember the requestor, so we can respond to it
       f_reset_requestor.enq (reset_requestor_soc);
 `endif
-      $display ("%0d: Core.rl_cpu_hart0_reset_from_soc_start", cur_cycle);
+      if (cfg_verbosity > 0)
+         $display ("%0d: Core.rl_cpu_hart0_reset_from_soc_start", cur_cycle);
    endrule
 
 `ifdef INCLUDE_GDB_CONTROL
@@ -152,7 +157,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
 
       // Remember the requestor, so we can respond to it
       f_reset_requestor.enq (reset_requestor_dm);
-      $display ("%0d: Core.rl_cpu_hart0_reset_from_dm_start", cur_cycle);
+      if (cfg_verbosity > 0)
+         $display ("%0d: Core.rl_cpu_hart0_reset_from_dm_start", cur_cycle);
    endrule
 `endif
 
@@ -176,7 +182,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       if (requestor == reset_requestor_soc)
 	 f_reset_rsps.enq (running);
 
-      $display ("%0d: Core.rl_cpu_hart0_reset_complete", cur_cycle);
+      if (cfg_verbosity > 0)
+         $display ("%0d: Core.rl_cpu_hart0_reset_complete", cur_cycle);
    endrule
 
    // ================================================================
@@ -324,14 +331,16 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
    rule rl_relay_sw_interrupts;    // from Near_Mem_IO (CLINT)
       Bool x <- near_mem_io.get_sw_interrupt_req.get;
       cpu.software_interrupt_req (x);
-      // $display ("%0d: Core.rl_relay_sw_interrupts: relaying: %d", cur_cycle, pack (x));
+      if (cfg_verbosity > 1)
+         $display ("%0d: Core.rl_relay_sw_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    rule rl_relay_timer_interrupts;    // from Near_Mem_IO (CLINT)
       Bool x <- near_mem_io.get_timer_interrupt_req.get;
       cpu.timer_interrupt_req (x);
 
-      // $display ("%0d: Core.rl_relay_timer_interrupts: relaying: %d", cur_cycle, pack (x));
+      if (cfg_verbosity > 1)
+         $display ("%0d: Core.rl_relay_timer_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    rule rl_relay_external_interrupts;    // from PLIC
@@ -341,7 +350,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       Bool seip = plic.v_targets [1].m_eip;
       cpu.s_external_interrupt_req (seip);
 
-      // $display ("%0d: Core.rl_relay_external_interrupts: relaying: %d", cur_cycle, pack (x));
+      if (cfg_verbosity > 1)
+         $display ("%0d: Core.rl_relay_external_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    // ================================================================
@@ -352,6 +362,7 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
 
    method Action  set_verbosity (Bit #(4)  verbosity, Bit #(64)  logdelay);
       cpu.set_verbosity (verbosity, logdelay);
+      cfg_verbosity <= verbosity;
    endmethod
 
    // ----------------------------------------------------------------
