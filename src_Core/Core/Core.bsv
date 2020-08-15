@@ -352,7 +352,8 @@ module mkCore (Core_IFC #(N_External_Interrupt_Sources));
       Bool seip = plic.v_targets [1].m_eip;
       cpu.s_external_interrupt_req (seip);
 
-      // $display ("%0d: Core.rl_relay_external_interrupts: relaying: %d", cur_cycle, pack (x));
+      if (cfg_verbosity > 1)
+         $display ("%0d: Core.rl_relay_external_interrupts: relaying: %d", cur_cycle, pack (x));
    endrule
 
    // ================================================================

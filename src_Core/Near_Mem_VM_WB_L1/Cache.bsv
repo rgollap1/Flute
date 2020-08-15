@@ -831,24 +831,14 @@ module mkCache #(parameter Bit #(3) verbosity)
       if (rg_cset_in_cache == fromInteger (csets_per_cache - 1)) begin
 	 rg_fsm_state <= FSM_IDLE;
 
-<<<<<<< HEAD
          if (verbosity >= 1) begin
             $display ("%0d: INFO: %m.rl_initialize", cur_cycle);
             $display ("    Size %0d KB, Associativity %0d, Line size %0d bytes (= %0d XLEN words)",
-                      kb_per_cache, ways_per_cset, (word64s_per_cline * 8),
+                      kb_per_cache, ways_per_cset, (cwords_per_cline * 8),
 `ifdef RV32
-                      (word64s_per_cline * 2)
+                      (cwords_per_cline * 2)
 `else
-                      (word64s_per_cline * 1)
-=======
-	 $display ("%0d: INFO: %m.rl_initialize", cur_cycle);
-	 $display ("    Size %0d KB, Associativity %0d, Line size %0d bytes (= %0d XLEN words)",
-		   kb_per_cache, ways_per_cset, (cwords_per_cline * 8),
-`ifdef RV32
-		   (cwords_per_cline * 2)
-`else
-		   (cwords_per_cline * 1)
->>>>>>> Completed merge follow-ups based on last two commits (da87f2eb ef4d7473)
+                      (cwords_per_cline * 1)
 `endif
 		   );
          end
