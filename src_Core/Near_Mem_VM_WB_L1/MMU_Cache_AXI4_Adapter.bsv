@@ -54,7 +54,6 @@ import Cache_Decls_RV64_8KB_2way :: *;
 `endif
 
 import MMU_Cache_Common :: *;
-
 import AXI4_Types  :: *;
 import Fabric_Defs :: *;
 
