@@ -39,11 +39,7 @@ import ISA_Decls    :: *;
 import Near_Mem_IFC :: *;
 
 `ifdef RV32
-`ifdef SV32
-import Cache_Decls_RV32_Sv32_8KB_2way :: *;
-`else
-import Cache_Decls_RV32_8KB_2way :: *;
-`endif
+import Cache_Decls_RV32 :: *;
 `endif
 
 `ifdef RV64
