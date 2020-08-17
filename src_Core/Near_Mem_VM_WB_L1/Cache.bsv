@@ -35,8 +35,8 @@ import GetPut_Aux    :: *;
 // ================================================================
 // Project imports
 
-import ISA_Decls    :: *;
-import Near_Mem_IFC :: *;
+import ISA_Decls        :: *;
+import Near_Mem_IFC     :: *;
 
 `ifdef RV32
 import Cache_Decls_RV32 :: *;
