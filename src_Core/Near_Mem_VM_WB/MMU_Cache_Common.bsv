@@ -231,6 +231,9 @@ deriving (Bits, FShow);
 
 // ================================================================
 // Functions to/from lsb-justified data to fabric-lane-aligned data
+// NS: Not doing lane adjustment here to keep it consistent with
+// AMO store word generation (fv_amo_op). Lane generation is done
+// later just before sending it the adapter.
 
 function Bit #(64) fv_size_code_to_mask (Bit #(2) size_code);
    Bit #(64) mask = case (size_code)
@@ -245,9 +248,9 @@ endfunction
 function Bit #(64) fv_to_byte_lanes (Bit #(64) addr, Bit #(2) size_code, Bit #(64) data);
    Bit #(64) data1 = (data & fv_size_code_to_mask (size_code));
 
-   Bit #(6)  shamt = { addr [2:0], 3'b0 };
-   Bit #(64) data2 = (data1 << shamt);
-   return data2;
+   //Bit #(6)  shamt = { addr [2:0], 3'b0 };
+   //Bit #(64) data2 = (data1 << shamt);
+   return data1;
 endfunction
 
 function Bit #(64) fv_from_byte_lanes (Bit #(64)  addr,
